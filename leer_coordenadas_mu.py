@@ -8,14 +8,20 @@ import os
 import time
 import pytesseract
 import numpy as np
+import requests
+import urllib.parse
 
+NOMBRE_VENTANA = "MU"
+FOLDER_PATH = os.path.dirname(os.path.abspath(__file__))
+FOLDER_CAPTURES = os.path.join(FOLDER_PATH, "captures")
+NUMERO_WSP = '51976073414'  # sin '+' pero con código país, por ejemplo Argentina: 54911...
+API_KEY = '4541590'  # El token que te da CallMeBot
 
-def obtener_monitor_para_ventana(ventana_mu):
+def get_cordinates_mu_window(ventana_mu):
     for nro_monitor, monitor_info  in enumerate(get_monitors()):
         
         if (
-            ventana_mu.left >= monitor_info.x and 
-            ventana_mu.top >= monitor_info.y and
+            ventana_mu.left >= monitor_info.x and  ventana_mu.top >= monitor_info.y and
             ventana_mu.left + ventana_mu.width  <=  monitor_info.x +  monitor_info.width  and 
             ventana_mu.top + ventana_mu.height <= monitor_info.y + monitor_info.height
         ):
@@ -24,8 +30,18 @@ def obtener_monitor_para_ventana(ventana_mu):
             return nro_monitor, ventana_mu.left - monitor_info.x, ventana_mu.top - monitor_info.y, ventana_mu.width, ventana_mu.height
 
 
-NOMBRE_VENTANA = "MU"
-FOLDER_CAPTURES = r"D:\workspace-phyton\captures"
+def send_whatsapp_message(numero, token, mensaje):
+    mensaje_encoded = urllib.parse.quote(mensaje)
+    url = f"https://api.callmebot.com/whatsapp.php?phone={numero}&text={mensaje_encoded}&apikey={token}"
+    try:
+        response = requests.get(url)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if response.status_code == 200:
+            print(f"📩 Mensaje enviado por WhatsApp. {timestamp}")
+        else:
+            print(f"❌ Error al enviar WhatsApp: {response.status_code} - {response.text} ({timestamp})")
+    except Exception as e:
+        print(f"⚠️ Error de red al enviar WhatsApp: {e}")
 
 ############# MAIN #############
 ventanas = [v for v in pygetwindow.getWindowsWithTitle(NOMBRE_VENTANA) 
@@ -38,36 +54,55 @@ for i, v in enumerate(ventanas):
 index_ventana = int(input("\n🧭 Ventana N°: "))
 ventana_mu = ventanas[index_ventana]
 
-nro_monitor, x, y, width, height = obtener_monitor_para_ventana(ventana_mu)
-
-camera = dxcam.create(output_idx=nro_monitor) # Monitor N°
-coordenadas = (x+160, y+30, x+210, y+63)
-#region = (x, y, x + width, y + height)
+nro_monitor, x, y, width, height = get_cordinates_mu_window(ventana_mu)
+camera = dxcam.create(output_idx=nro_monitor) # Apunta al monitor de la ventana del MU
+coordenadas = (x+160, y+30, x+210, y+63) # Coordenadas de la captura de pantalla
 contador = 1
-
+first = True
+spot_x = 0
+spot_y = 0
 while True:
-    frame = camera.grab(region=coordenadas)
+    frame = camera.grab(region=coordenadas) # Hace la captura de pantalla
     if frame is not None:
         img = Image.fromarray(frame)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"captura_{contador}_{timestamp}.png"
-        
-        path = os.path.join(FOLDER_CAPTURES, filename)
-        img.save(path)
-        print(f"📸 Captura: {contador}")
-        contador += 1
-
         custom_config = r'--psm 6 -c tessedit_char_whitelist=0123456789,'
-        texto = pytesseract.image_to_string(Image.open(path), config=custom_config)
-        texto_limpio = texto.strip().replace("\n", "")
-        print(f"✅ Texto leido {texto_limpio}.")
-        coordenada_x, coordenada_y = map(int, texto.split(","))
+                
+        try:
+            image_text = pytesseract.image_to_string(img, config=custom_config)
+            format_text = image_text.strip().replace("\n", "")
+            array_text = [p for p in format_text.split(",") if p.strip().isdigit()]
+            if len(array_text) >= 2:
+                coordinate_x, coordinate_y = map(int, array_text[0:2])
+                print(f"✅ Coordenas MU {coordinate_x}, {coordinate_y}")
+            else:
+                raise ValueError("No se encontraron dos números válidos.")
+        except ValueError as e:
+            print(f"⚠️ Error al procesar coordenadas: {e}")
+            time.sleep(3)
+            continue
 
-        # 80 > coordenada_x > 40 and 211 > coordenada_y > 171
-        # 40,190  60,211
-        # 60,171  80,193
-        if 40 < coordenada_x < 80 and 171 < coordenada_y < 211:
-            print(f"❌ Estas en safe ❌")
+        if first:
+            spot_x = coordinate_x
+            spot_y = coordinate_y
+            first = False
+
+        if coordinate_x < spot_x-10 or spot_x+10 < coordinate_x or coordinate_y < spot_y-10 or spot_y+10 < coordinate_y:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"mu_{contador}_{timestamp}.png"        
+            path = os.path.join(FOLDER_CAPTURES, filename)
+
+            coordinate_window_mu = (x, y, x+width, y+height)
+            frame_window = camera.grab(region=coordinate_window_mu) # Hace la captura de pantalla
+            img_window = Image.fromarray(frame_window)
+            img_window.save(path)            
+            contador += 1
+
+            mensaje = f"Te mataron en el spot ☠️, revisa el PJ 🕊️ ({coordinate_x},{coordinate_y})"
+            send_whatsapp_message(NUMERO_WSP, API_KEY, mensaje)
+            print(f"❌ Estas en safe ❌\n")
+            time.sleep(240)
     else:
+        mensaje = "Error en la captura de pantalla del MU)"
+        send_whatsapp_message(NUMERO_WSP, API_KEY, mensaje)
         print("⚠️ Error al capturar imagen.")
-    time.sleep(3)
+    time.sleep(60)
