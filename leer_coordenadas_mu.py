@@ -37,7 +37,7 @@ def send_whatsapp_message(numero, token, mensaje):
         response = requests.get(url)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if response.status_code == 200:
-            print(f"📩 Mensaje enviado por WhatsApp. {timestamp}")
+            print(f"\n📩 Mensaje enviado por WhatsApp. {timestamp}")
         else:
             print(f"❌ Error al enviar WhatsApp: {response.status_code} - {response.text} ({timestamp})")
     except Exception as e:
@@ -66,19 +66,22 @@ while True:
     if frame is not None:
         img = Image.fromarray(frame)
         custom_config = r'--psm 6 -c tessedit_char_whitelist=0123456789,'
-                
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H#%M#%S")
+
         try:
             image_text = pytesseract.image_to_string(img, config=custom_config)
             format_text = image_text.strip().replace("\n", "")
             array_text = [p for p in format_text.split(",") if p.strip().isdigit()]
             if len(array_text) >= 2:
                 coordinate_x, coordinate_y = map(int, array_text[0:2])
-                print(f"✅ Coordenas MU {coordinate_x}, {coordinate_y}")
+                print(f"✅ Coordenas MU ({coordinate_x},{coordinate_y}) - Time: {timestamp}")
             else:
                 raise ValueError("No se encontraron dos números válidos.")
         except ValueError as e:
-            print(f"⚠️ Error al procesar coordenadas: {e}")
-            time.sleep(3)
+            mensaje_error_lectura = "Error leyendo coordenadas (Desconexion probablemente‼️)"
+            send_whatsapp_message(NUMERO_WSP, API_KEY, mensaje_error_lectura)
+            print(f"⚠️ Error leyendo coordenadas: {e}")            
+            time.sleep(600)
             continue
 
         if first:
@@ -87,22 +90,23 @@ while True:
             first = False
 
         if coordinate_x < spot_x-10 or spot_x+10 < coordinate_x or coordinate_y < spot_y-10 or spot_y+10 < coordinate_y:
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"mu_{contador}_{timestamp}.png"        
+            
+            filename = f"mu{contador}_{timestamp}.png"        
             path = os.path.join(FOLDER_CAPTURES, filename)
 
             coordinate_window_mu = (x, y, x+width, y+height)
             frame_window = camera.grab(region=coordinate_window_mu) # Hace la captura de pantalla
             img_window = Image.fromarray(frame_window)
-            img_window.save(path)            
-            contador += 1
+            img_window.save(path)
 
-            mensaje = f"Te mataron en el spot ☠️, revisa el PJ 🕊️ ({coordinate_x},{coordinate_y})"
+            mensaje = f"Te mataron en el spot 🕊️ ({coordinate_x},{coordinate_y})"
             send_whatsapp_message(NUMERO_WSP, API_KEY, mensaje)
-            print(f"❌ Estas en safe ❌\n")
-            time.sleep(240)
+            print(f"❌ Estas en safe ❌")
+            time.sleep(600)
+        contador += 1    
     else:
-        mensaje = "Error en la captura de pantalla del MU)"
-        send_whatsapp_message(NUMERO_WSP, API_KEY, mensaje)
+        mensaje_error_captura = "Error captura de pantalla MU (Pobablemente desconexión 🚩)"
+        send_whatsapp_message(NUMERO_WSP, API_KEY, mensaje_error_captura)
         print("⚠️ Error al capturar imagen.")
+        time.sleep(600)
     time.sleep(60)
